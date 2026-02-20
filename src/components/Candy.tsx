@@ -1,21 +1,37 @@
+/**
+ * Single candy cell: clickable and shows selection, match, fall, and swap animations.
+ * Memoized so it only re-renders when its props change.
+ */
+
+import { memo } from 'react';
 import { Circle } from 'lucide-react';
 import { CandyColor } from '../types/game';
 import { CANDY_COLOR_MAP } from '../constants/game';
+
+export type SwapDirection = 'from-left' | 'from-right' | 'from-top' | 'from-bottom';
 
 interface CandyProps {
   color: CandyColor;
   isSelected: boolean;
   isMatched?: boolean;
   isFalling?: boolean;
-  swapDirection?: 'from-left' | 'from-right' | 'from-top' | 'from-bottom';
+  swapDirection?: SwapDirection;
   onClick: () => void;
 }
 
-export function Candy({ color, isSelected, isMatched, isFalling, swapDirection, onClick }: CandyProps) {
+function CandyComponent({
+  color,
+  isSelected,
+  isMatched,
+  isFalling,
+  swapDirection,
+  onClick,
+}: CandyProps) {
   const backgroundColor = CANDY_COLOR_MAP[color];
 
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`
         w-full h-full rounded-lg flex items-center justify-center
@@ -29,13 +45,17 @@ export function Candy({ color, isSelected, isMatched, isFalling, swapDirection, 
         ${swapDirection === 'from-bottom' ? 'animate-swap-from-bottom' : ''}
       `}
       style={{ backgroundColor }}
+      aria-label={`Candy ${color}`}
     >
       <Circle
         size={32}
         fill="white"
         color="white"
         className="opacity-80"
+        aria-hidden
       />
     </button>
   );
 }
+
+export const Candy = memo(CandyComponent);

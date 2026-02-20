@@ -1,5 +1,11 @@
+/**
+ * Renders the game grid and delegates each cell to Candy.
+ * Uses memoization and stable callbacks so Candy only re-renders when its props change.
+ */
+
+import { memo, useCallback, useMemo } from 'react';
 import { Candy as CandyType, Position } from '../types/game';
-import { Candy } from './Candy';
+import { Candy, type SwapDirection } from './Candy';
 import { BOARD_SIZE } from '../constants/game';
 
 interface GameBoardProps {
@@ -11,7 +17,11 @@ interface GameBoardProps {
   onCandyClick: (row: number, col: number) => void;
 }
 
-export function GameBoard({
+function positionKey(pos: Position): string {
+  return `${pos.row},${pos.col}`;
+}
+
+function GameBoardComponent({
   board,
   selectedCandy,
   matchedPositions = [],
@@ -19,39 +29,51 @@ export function GameBoard({
   lastSwap,
   onCandyClick,
 }: GameBoardProps) {
-  const isMatched = (row: number, col: number) =>
-    matchedPositions.some(pos => pos.row === row && pos.col === col);
+  const matchedSet = useMemo(
+    () => new Set(matchedPositions.map(positionKey)),
+    [matchedPositions]
+  );
+  const fallingSet = useMemo(
+    () => new Set(fallingPositions.map(positionKey)),
+    [fallingPositions]
+  );
 
-  const isFalling = (row: number, col: number) =>
-    fallingPositions.some(pos => pos.row === row && pos.col === col);
+  const isMatched = useCallback(
+    (row: number, col: number) => matchedSet.has(`${row},${col}`),
+    [matchedSet]
+  );
+  const isFalling = useCallback(
+    (row: number, col: number) => fallingSet.has(`${row},${col}`),
+    [fallingSet]
+  );
 
-  const getSwapDirection = (row: number, col: number): 'from-left' | 'from-right' | 'from-top' | 'from-bottom' | undefined => {
-    if (!lastSwap) return undefined;
+  const getSwapDirection = useCallback(
+    (row: number, col: number): SwapDirection | undefined => {
+      if (!lastSwap) return undefined;
+      const { first, second } = lastSwap;
 
-    const { first, second } = lastSwap;
-
-    if (row === first.row && col === first.col) {
-      if (second.row === first.row) {
-        if (second.col === first.col + 1) return 'from-right';
-        if (second.col === first.col - 1) return 'from-left';
-      } else if (second.col === first.col) {
-        if (second.row === first.row + 1) return 'from-bottom';
-        if (second.row === first.row - 1) return 'from-top';
+      if (row === first.row && col === first.col) {
+        if (second.row === first.row) {
+          if (second.col === first.col + 1) return 'from-right';
+          if (second.col === first.col - 1) return 'from-left';
+        } else if (second.col === first.col) {
+          if (second.row === first.row + 1) return 'from-bottom';
+          if (second.row === first.row - 1) return 'from-top';
+        }
       }
-    }
-
-    if (row === second.row && col === second.col) {
-      if (first.row === second.row) {
-        if (first.col === second.col + 1) return 'from-right';
-        if (first.col === second.col - 1) return 'from-left';
-      } else if (first.col === second.col) {
-        if (first.row === second.row + 1) return 'from-bottom';
-        if (first.row === second.row - 1) return 'from-top';
+      if (row === second.row && col === second.col) {
+        if (first.row === second.row) {
+          if (first.col === second.col + 1) return 'from-right';
+          if (first.col === second.col - 1) return 'from-left';
+        } else if (first.col === second.col) {
+          if (first.row === second.row + 1) return 'from-bottom';
+          if (first.row === second.row - 1) return 'from-top';
+        }
       }
-    }
-
-    return undefined;
-  };
+      return undefined;
+    },
+    [lastSwap]
+  );
 
   return (
     <div
@@ -60,12 +82,15 @@ export function GameBoard({
         gridTemplateColumns: `repeat(${BOARD_SIZE}, minmax(0, 1fr))`,
         gridTemplateRows: `repeat(${BOARD_SIZE}, minmax(0, 1fr))`,
       }}
+      role="grid"
+      aria-label="Game board"
     >
       {board.map((row, rowIndex) =>
         row.map((candy, colIndex) => (
           <div
             key={`${rowIndex}-${colIndex}`}
             className="w-16 h-16"
+            role="gridcell"
           >
             {candy && (
               <Candy
@@ -85,3 +110,5 @@ export function GameBoard({
     </div>
   );
 }
+
+export const GameBoard = memo(GameBoardComponent);

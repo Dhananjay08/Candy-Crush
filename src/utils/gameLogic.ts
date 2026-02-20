@@ -1,6 +1,18 @@
-import { Candy, Position } from '../types/game';
-import { BOARD_SIZE, CANDY_COLORS } from '../constants/game';
+/**
+ * Pure game logic for the Candy Crush match-3 game.
+ * All functions are deterministic and avoid mutating inputs; boards are copied before updates.
+ */
 
+import { Candy, Position } from '../types/game';
+import { BOARD_SIZE, CANDY_COLORS, MIN_MATCH_LENGTH } from '../constants/game';
+
+/** Type for the game board: 2D grid of Candy or empty cell */
+export type Board = (Candy | null)[][];
+
+/**
+ * Creates a new candy with a random color at the given position.
+ * Uses a unique id for React keys and for detecting gravity/fill changes.
+ */
 export function createCandy(row: number, col: number): Candy {
   const color = CANDY_COLORS[Math.floor(Math.random() * CANDY_COLORS.length)];
   return {
@@ -11,13 +23,24 @@ export function createCandy(row: number, col: number): Candy {
   };
 }
 
-export function initializeBoard(): (Candy | null)[][] {
-  const board: (Candy | null)[][] = [];
+/**
+ * Returns a candy with the same color and id but updated row/col.
+ * Used when applying gravity to keep board state immutable.
+ */
+function candyWithPosition(candy: Candy, row: number, col: number): Candy {
+  return { ...candy, row, col };
+}
+
+/**
+ * Builds an initial board with no pre-existing matches.
+ * Fills the grid then repeatedly re-rolls candies until no matches exist.
+ */
+export function initializeBoard(): Board {
+  const board: Board = [];
   for (let row = 0; row < BOARD_SIZE; row++) {
     board[row] = [];
     for (let col = 0; col < BOARD_SIZE; col++) {
-      let candy = createCandy(row, col);
-      board[row][col] = candy;
+      board[row][col] = createCandy(row, col);
     }
   }
 
@@ -32,130 +55,114 @@ export function initializeBoard(): (Candy | null)[][] {
   return board;
 }
 
-export function hasMatches(board: (Candy | null)[][]): boolean {
+/** Returns true if the board has at least one match of MIN_MATCH_LENGTH or more. */
+export function hasMatches(board: Board): boolean {
   for (let row = 0; row < BOARD_SIZE; row++) {
     for (let col = 0; col < BOARD_SIZE; col++) {
-      if (checkMatch(board, row, col)) {
-        return true;
-      }
+      if (checkMatch(board, row, col)) return true;
     }
   }
   return false;
 }
 
-export function checkMatch(board: (Candy | null)[][], row: number, col: number): boolean {
+/**
+ * Returns true if the cell (row, col) is part of a horizontal or vertical
+ * match of at least MIN_MATCH_LENGTH same-color candies.
+ */
+export function checkMatch(board: Board, row: number, col: number): boolean {
   const candy = board[row][col];
   if (!candy) return false;
 
-  let horizontalCount = 1;
-  let verticalCount = 1;
+  const horizontalCount = countLine(board, row, col, 0, 1) + countLine(board, row, col, 0, -1) - 1;
+  const verticalCount = countLine(board, row, col, 1, 0) + countLine(board, row, col, -1, 0) - 1;
 
-  let left = col - 1;
-  while (left >= 0 && board[row][left]?.color === candy.color) {
-    horizontalCount++;
-    left--;
-  }
-  let right = col + 1;
-  while (right < BOARD_SIZE && board[row][right]?.color === candy.color) {
-    horizontalCount++;
-    right++;
-  }
-
-  let up = row - 1;
-  while (up >= 0 && board[up][col]?.color === candy.color) {
-    verticalCount++;
-    up--;
-  }
-  let down = row + 1;
-  while (down < BOARD_SIZE && board[down][col]?.color === candy.color) {
-    verticalCount++;
-    down++;
-  }
-
-  return horizontalCount >= 3 || verticalCount >= 3;
+  return horizontalCount >= MIN_MATCH_LENGTH || verticalCount >= MIN_MATCH_LENGTH;
 }
 
-export function findAllMatches(board: (Candy | null)[][]): Position[] {
-  const matches: Set<string> = new Set();
+/**
+ * Counts consecutive same-color candies from (row, col) in direction (dr, dc).
+ * Includes the starting cell.
+ */
+function countLine(
+  board: Board,
+  row: number,
+  col: number,
+  dr: number,
+  dc: number
+): number {
+  const candy = board[row][col];
+  if (!candy) return 0;
+  let count = 0;
+  let r = row;
+  let c = col;
+  while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c]?.color === candy.color) {
+    count++;
+    r += dr;
+    c += dc;
+  }
+  return count;
+}
+
+/**
+ * Returns all board positions that belong to at least one match.
+ * Each position appears once (Set used to handle overlapping horizontal/vertical matches).
+ */
+export function findAllMatches(board: Board): Position[] {
+  const matchKeys = new Set<string>();
 
   for (let row = 0; row < BOARD_SIZE; row++) {
     for (let col = 0; col < BOARD_SIZE; col++) {
       const candy = board[row][col];
       if (!candy) continue;
 
-      let horizontalCount = 1;
-      let horizontalPositions: Position[] = [{ row, col }];
-
-      let left = col - 1;
-      while (left >= 0 && board[row][left]?.color === candy.color) {
-        horizontalCount++;
-        horizontalPositions.push({ row, col: left });
-        left--;
-      }
-      let right = col + 1;
-      while (right < BOARD_SIZE && board[row][right]?.color === candy.color) {
-        horizontalCount++;
-        horizontalPositions.push({ row, col: right });
-        right++;
+      // Horizontal run through (row, col)
+      const left = col - countLine(board, row, col, 0, -1) + 1;
+      const right = col + countLine(board, row, col, 0, 1) - 1;
+      if (right - left + 1 >= MIN_MATCH_LENGTH) {
+        for (let c = left; c <= right; c++) matchKeys.add(`${row},${c}`);
       }
 
-      if (horizontalCount >= 3) {
-        horizontalPositions.forEach(pos => matches.add(`${pos.row},${pos.col}`));
-      }
-
-      let verticalCount = 1;
-      let verticalPositions: Position[] = [{ row, col }];
-
-      let up = row - 1;
-      while (up >= 0 && board[up][col]?.color === candy.color) {
-        verticalCount++;
-        verticalPositions.push({ row: up, col });
-        up--;
-      }
-      let down = row + 1;
-      while (down < BOARD_SIZE && board[down][col]?.color === candy.color) {
-        verticalCount++;
-        verticalPositions.push({ row: down, col });
-        down++;
-      }
-
-      if (verticalCount >= 3) {
-        verticalPositions.forEach(pos => matches.add(`${pos.row},${pos.col}`));
+      // Vertical run through (row, col)
+      const up = row - countLine(board, row, col, -1, 0) + 1;
+      const down = row + countLine(board, row, col, 1, 0) - 1;
+      if (down - up + 1 >= MIN_MATCH_LENGTH) {
+        for (let r = up; r <= down; r++) matchKeys.add(`${r},${col}`);
       }
     }
   }
 
-  return Array.from(matches).map(key => {
-    const [row, col] = key.split(',').map(Number);
-    return { row, col };
+  return Array.from(matchKeys, key => {
+    const [r, c] = key.split(',').map(Number);
+    return { row: r, col: c };
   });
 }
 
-export function removeMatches(board: (Candy | null)[][], matches: Position[]): (Candy | null)[][] {
-  const newBoard = board.map(row => [...row]);
-  matches.forEach(({ row, col }) => {
+/** Returns a new board with the given match positions cleared (set to null). */
+export function removeMatches(board: Board, matches: Position[]): Board {
+  const newBoard = board.map(r => [...r]);
+  for (const { row, col } of matches) {
     newBoard[row][col] = null;
-  });
+  }
   return newBoard;
 }
 
-export function applyGravity(board: (Candy | null)[][]): (Candy | null)[][] {
-  const newBoard = board.map(row => [...row]);
+/**
+ * Applies gravity: candies fall downward in each column.
+ * Returns a new board; candy objects that move are recreated with updated row/col (immutable).
+ */
+export function applyGravity(board: Board): Board {
+  const newBoard = board.map(r => [...r]);
 
   for (let col = 0; col < BOARD_SIZE; col++) {
-    let emptyRow = BOARD_SIZE - 1;
-
-    for (let row = BOARD_SIZE - 1; row >= 0; row--) {
-      if (newBoard[row][col] !== null) {
-        if (row !== emptyRow) {
-          const candy = newBoard[row][col];
-          newBoard[emptyRow][col] = candy;
-          if (candy) {
-            candy.row = emptyRow;
-          }
-          newBoard[row][col] = null;
+    let writeRow = BOARD_SIZE - 1;
+    for (let readRow = BOARD_SIZE - 1; readRow >= 0; readRow--) {
+      const candy = newBoard[readRow][col];
+      if (candy !== null) {
+        if (readRow !== writeRow) {
+          newBoard[writeRow][col] = candyWithPosition(candy, writeRow, col);
+          newBoard[readRow][col] = null;
         }
-        emptyRow--;
+        writeRow--;
       }
     }
   }
@@ -163,9 +170,9 @@ export function applyGravity(board: (Candy | null)[][]): (Candy | null)[][] {
   return newBoard;
 }
 
-export function fillEmptySpaces(board: (Candy | null)[][]): (Candy | null)[][] {
-  const newBoard = board.map(row => [...row]);
-
+/** Fills null cells with new candies (e.g. after gravity). */
+export function fillEmptySpaces(board: Board): Board {
+  const newBoard = board.map(r => [...r]);
   for (let row = 0; row < BOARD_SIZE; row++) {
     for (let col = 0; col < BOARD_SIZE; col++) {
       if (newBoard[row][col] === null) {
@@ -173,34 +180,25 @@ export function fillEmptySpaces(board: (Candy | null)[][]): (Candy | null)[][] {
       }
     }
   }
-
   return newBoard;
 }
 
+/** Returns true if the two positions are adjacent (one step horizontally or vertically). */
 export function areAdjacent(pos1: Position, pos2: Position): boolean {
   const rowDiff = Math.abs(pos1.row - pos2.row);
   const colDiff = Math.abs(pos1.col - pos2.col);
   return (rowDiff === 1 && colDiff === 0) || (rowDiff === 0 && colDiff === 1);
 }
 
-export function swapCandies(
-  board: (Candy | null)[][],
-  pos1: Position,
-  pos2: Position
-): (Candy | null)[][] {
-  const newBoard = board.map(row => [...row]);
-  const temp = newBoard[pos1.row][pos1.col];
-  newBoard[pos1.row][pos1.col] = newBoard[pos2.row][pos2.col];
-  newBoard[pos2.row][pos2.col] = temp;
-
-  if (newBoard[pos1.row][pos1.col]) {
-    newBoard[pos1.row][pos1.col]!.row = pos1.row;
-    newBoard[pos1.row][pos1.col]!.col = pos1.col;
-  }
-  if (newBoard[pos2.row][pos2.col]) {
-    newBoard[pos2.row][pos2.col]!.row = pos2.row;
-    newBoard[pos2.row][pos2.col]!.col = pos2.col;
-  }
-
+/**
+ * Returns a new board with the candies at pos1 and pos2 swapped.
+ * Candy row/col properties are updated to match their new positions.
+ */
+export function swapCandies(board: Board, pos1: Position, pos2: Position): Board {
+  const newBoard = board.map(r => [...r]);
+  const a = newBoard[pos1.row][pos1.col];
+  const b = newBoard[pos2.row][pos2.col];
+  newBoard[pos1.row][pos1.col] = b ? candyWithPosition(b, pos1.row, pos1.col) : null;
+  newBoard[pos2.row][pos2.col] = a ? candyWithPosition(a, pos2.row, pos2.col) : null;
   return newBoard;
 }
